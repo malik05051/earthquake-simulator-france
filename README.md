@@ -28,7 +28,8 @@ chmod +x QuakeSimulatorFrance-*.AppImage
 - **Nouveau séisme** : cliquez sur la carte ou choisissez un préréglage (Le Teil 2019, La Laigne 2023, Lambesc 1909, Arette 1967, mer Ligure 1887, Bâle 1356, Ubaye 2014, scénario au large de Nice). Les paramètres historiques sont approximatifs.
 - **Vues** : informations (1), temps réel (2), tsunami (3).
 - **Commandes** : Espace pour lecture/pause, R pour réinitialiser, N pour un nouveau séisme, ← / → pour avancer ou reculer de 5 s.
-- **Réglages** : langue, volume, annonces vocales, alerte précoce fictive, économie d’énergie, et sons d’alerte (des tons originaux synthétisés, que vous pouvez remplacer par vos propres fichiers).
+- **Réglages** : échelle d’intensité, langue, volume, annonces vocales, alerte précoce fictive, économie d’énergie et sons d’alerte.
+- **Sons** : les mêmes sons que le simulateur pour le Japon (ceux du projet Scratch d’origine), associés aux événements français équivalents. Vous pouvez remplacer chacun par votre propre fichier.
 
 ## Développement
 
@@ -46,6 +47,7 @@ npm run dist      # AppImage dans dist/
 - Départements, littoral, terres et villes : Natural Earth (domaine public).
 - Stations : RESIF, Réseau sismologique et géodésique français (métadonnées publiques du service FDSN).
 - Rendu de la carte : MapLibre GL JS (BSD-3-Clause).
+- Sons d’alerte (`src/sounds/`) : repris tels quels du projet Scratch d’origine ([walbcglgh/jp_eew_simulator](https://github.com/walbcglgh/jp_eew_simulator), MPL-2.0). Leur licence suit celle de ce projet ; certains pourraient imiter des carillons d’alerte diffusés à la télévision, vérifiez avant toute redistribution.
 
 ---
 
@@ -64,4 +66,5 @@ An earthquake simulator for metropolitan France, in French and English, packaged
 - **Fictional early warning**, which you can turn off: France has **no** public earthquake early-warning system, and the app labels this feature as fictional.
 - **Two intensity scales**, chosen in Settings: EMS-98 (European, default) or shindo (Japanese, JMA). Shindo is an approximate conversion from EMS-98 (JMA instrumental intensity ≈ 0.8 × EMS − 1.2).
 - **Epicenter names:** distance and direction from a commune ("12 km NE of Grenoble"), the way French agencies report them.
+- **Sounds:** the same alert sounds as the Japan simulator (from the original Scratch project), mapped to the equivalent French events. Each can be replaced by your own file. Their licensing follows the original project; some may imitate broadcast alert chimes.
 - **Language:** switch between French and English in Settings. The whole interface, dates, numbers and spoken announcements follow the chosen language.

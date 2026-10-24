@@ -203,7 +203,7 @@ export class QuakeMap {
   }
 
   setWaves(q, pR, sR) {
-    const key = `${Math.round(pR)}|${Math.round(sR)}`;
+    const key = `${pR.toFixed(1)}|${sR.toFixed(1)}`; // sub-km steps keep the rings moving smoothly
     if (key === this._waveKey) return;
     this._waveKey = key;
     const feats = [];

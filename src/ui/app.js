@@ -8,7 +8,7 @@ import {
   fmtTime, fmtDate, depthText,
 } from './cards.js';
 import {
-  play, say, stopSpeech, setVolume, setSpeech, SOUND_SLOTS, slotLabel, loadCustomSounds, setCustomSound,
+  play, preload, say, stopSpeech, setVolume, setSpeech, SOUND_SLOTS, slotLabel, loadCustomSounds, setCustomSound,
   clearCustomSound, customSoundName,
 } from './audio.js';
 import { t, setLang, getLang, applyStatic } from './i18n.js';
@@ -33,7 +33,7 @@ let history = load(STORE + '.history', []);
 
 const state = {
   sim: null, quake: null, data: null, map: null,
-  t: -5, playing: false, speed: 1, lastFrame: 0, lastMapUpdate: 0, lastSide: 0,
+  t: -5, playing: false, speed: 1, lastFrame: 0, lastMapUpdate: 0, lastSide: 0, lastWave: 0,
   pending: null, activeId: null, view: 'realtime', markers: true, rt: null,
   alerted: false, lastEewKey: '', shakeK: 0, loop: 0, tsunamiShownAt: -Infinity,
 };
@@ -244,6 +244,7 @@ function startPending() {
   if (!state.pending) return;
   const q = { lat: state.pending.lat, lon: state.pending.lon, depth: parseInt($('depth').value, 10), mag: parseFloat($('mag').value), origin: Date.now() + 5000 };
   closeSetup();
+  preload();
   startQuake(q, { autoplay: true });
 }
 
@@ -358,8 +359,22 @@ function clock(tt) { return new Date(state.quake ? state.quake.origin + tt * 100
 
 function render(force) {
   const now = performance.now();
+  renderWaves(now, force);
   if (force || now - state.lastMapUpdate >= (P.lowpower ? 250 : 100)) { state.lastMapUpdate = now; renderMap(); }
   if (force || now - state.lastSide >= 250) { state.lastSide = now; renderClock(); renderCards(); renderTimeline(); }
+}
+
+// The P and S rings move every frame (30 fps in power-saver mode), independently of the
+// slower map refresh, so they expand smoothly.
+function renderWaves(now, force) {
+  if (!state.quake || state.view !== 'realtime') return;
+  if (!force && P.lowpower && now - state.lastWave < 33) return;
+  state.lastWave = now;
+  const q = state.quake;
+  const t = state.t;
+  const pR = t > 0 ? surfaceRadius(t, q.depth, VP) : 0;
+  const sR = t > 0 ? surfaceRadius(t, q.depth, VS) : 0;
+  state.map.setWaves(q, pR < 1500 ? pR : 0, sR < 1500 ? sR : 0);
 }
 
 function renderTimeline() {
@@ -432,9 +447,6 @@ function renderMap() {
     for (let i = 0; i < rt.length; i++) rt[i] = sim.realtime(i, tt);
     m.setStations(rt);
     checkShaking();
-    const pR = tt > 0 ? surfaceRadius(tt, q.depth, VP) : 0;
-    const sR = tt > 0 ? surfaceRadius(tt, q.depth, VS) : 0;
-    m.setWaves(q, pR < 1500 ? pR : 0, sR < 1500 ? sR : 0);
     m.setAreas(new Map(), eew ? eew.forecast : new Map(), eew && eew.isAlert ? eew.alertAreas : new Set());
   } else {
     const felt = info && info.type !== 'auto' ? sim.deptsAt(Infinity) : new Map();
@@ -478,6 +490,8 @@ function announce(ev) {
       play('eewAlert');
       const areas = [...r.alertAreas].slice(0, 5).map((c) => state.data.depByCode.get(c)?.properties.name).join(', ');
       say(t('sayEewAlert', { areas }), { interrupt: true });
+    } else if (r.isFinal) {
+      play('eewFinal');
     } else if (key !== state.lastEewKey) {
       play('update');
     }

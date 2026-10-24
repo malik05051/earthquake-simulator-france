@@ -1,4 +1,6 @@
-// Alert sounds (synthesised, original) and spoken announcements in French or English.
+// Alert sounds and spoken announcements in French or English.
+// Built-in sounds are the same files as the Japan simulator (from the original Scratch project),
+// mapped to the equivalent French events; the synthesised tones are only a fallback.
 // Each alert can be replaced by a user-chosen audio file (stored in IndexedDB).
 import { t, getLang } from './i18n.js';
 
@@ -51,6 +53,7 @@ const SYNTH = {
   auto: [1400, () => { tone(523, 0, 0.5, { gain: 0.22 }); tone(659, 0.18, 0.5, { gain: 0.22 }); tone(784, 0.36, 0.9, { gain: 0.22 }); }],
   felt: [1400, () => { tone(784, 0, 0.5, { gain: 0.22 }); tone(659, 0.2, 0.9, { gain: 0.22 }); }],
   final: [1200, () => { tone(659, 0, 0.4, { gain: 0.2 }); tone(988, 0.18, 0.8, { gain: 0.2 }); }],
+  eewFinal: [600, () => { tone(1175, 0, 0.25, { gain: 0.2 }); tone(880, 0.15, 0.4, { gain: 0.2 }); }],
   tsunamiInformation: [1800, () => { tone(392, 0, 0.6, { type: 'triangle' }); tone(392, 0.8, 0.6, { type: 'triangle' }); }],
   tsunamiVigilance: [2400, () => { for (let i = 0; i < 3; i++) tone(440, i * 0.7, 0.55, { type: 'triangle', glide: -40 }); }],
   tsunamiAlerte: [3600, () => { for (let i = 0; i < 4; i++) tone(330, i * 0.8, 0.7, { type: 'sawtooth', gain: 0.16, glide: 160 }); }],
@@ -58,17 +61,35 @@ const SYNTH = {
 };
 
 export const SOUND_SLOTS = [
-  ['eew', 'EEW'], ['eewAlert', 'EEW !'], ['update', '↻'], ['auto', 'autoLoc'], ['felt', 'felt'], ['final', 'final'],
+  ['eew', 'EEW'], ['eewAlert', 'EEW !'], ['update', '↻'], ['eewFinal', 'EEW final'], ['auto', 'autoLoc'], ['felt', 'felt'], ['final', 'final'],
   ['tsunamiAlerte', 'alerte'], ['tsunamiVigilance', 'vigilance'], ['tsunamiInformation', 'information'],
 ];
 
 export function slotLabel(slot) {
   const L = {
     eew: `${t('eewTitle')} (1)`, eewAlert: `${t('eewTitle')} — ${t('eewAlert')}`, update: `${t('eewTitle')} (+)`,
+    eewFinal: `${t('eewTitle')} — ${t('eewFinal')}`,
     auto: t('autoLoc'), felt: t('felt'), final: t('final'),
     tsunamiAlerte: t('tsunamiTitle').alerte, tsunamiVigilance: t('tsunamiTitle').vigilance, tsunamiInformation: t('tsunamiTitle').information,
   };
   return L[slot] ?? slot;
+}
+
+// slot -> built-in file (same sounds as the Japan app)
+const FILES = {
+  eew: 'eew.wav', eewAlert: 'eew-warning.mp3', update: 'eew-update.mp3', eewFinal: 'eew-final.mp3',
+  auto: 'info-hypocenter.mp3', felt: 'info-flash.mp3', final: 'info-detail.mp3',
+  tsunamiInformation: 'tsa01.mp3', tsunamiVigilance: 'tsa02.mp3', tsunamiAlerte: 'tsa03.mp3',
+};
+// EMS class of new shaking -> "shaking detected" tone (III..IX and above)
+const SHAKE_FILE = (k) => `newshi${Math.max(0, Math.min(6, k - 3))}.wav`;
+
+const files = new Map(); // file -> Promise<AudioBuffer|null>
+function fileBuffer(name) {
+  if (!files.has(name)) {
+    files.set(name, fetch(`sounds/${name}`).then((r) => r.arrayBuffer()).then((b) => ac().decodeAudioData(b)).catch(() => null));
+  }
+  return files.get(name);
 }
 
 const custom = new Map();
@@ -112,24 +133,33 @@ export async function clearCustomSound(slot) {
 export function customSoundName(slot) { return custom.get(slot)?.name ?? null; }
 
 let current = null;
-export function play(slot, arg) {
+function playBuffer(buffer, exclusive) {
+  if (exclusive) { try { current?.stop(); } catch { /* already stopped */ } }
+  const src = ac().createBufferSource();
+  src.buffer = buffer;
+  src.connect(master);
+  src.start();
+  if (exclusive) current = src;
+  scheduleSuspend(buffer.duration * 1000);
+}
+
+export async function play(slot, arg) {
   try {
     const c = custom.get(slot);
-    if (c) {
-      try { current?.stop(); } catch { /* already stopped */ }
-      const src = ac().createBufferSource();
-      src.buffer = c.buffer;
-      src.connect(master);
-      src.start();
-      current = src;
-      scheduleSuspend(c.buffer.duration * 1000);
-      return;
-    }
+    if (c) { playBuffer(c.buffer, true); return; }
+    const file = slot === 'shake' ? SHAKE_FILE(arg ?? 3) : FILES[slot];
+    const buffer = file ? await fileBuffer(file) : null;
+    if (buffer) { playBuffer(buffer, slot !== 'shake'); return; }
     const s = SYNTH[slot];
     if (!s) return;
     s[1](arg);
     scheduleSuspend(s[0]);
   } catch { /* audio not available */ }
+}
+
+export function preload() {
+  for (const f of Object.values(FILES)) fileBuffer(f);
+  for (let k = 3; k <= 9; k++) fileBuffer(SHAKE_FILE(k));
 }
 
 // ------------------------------------------------------------------ speech
