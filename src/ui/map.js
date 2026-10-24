@@ -2,6 +2,9 @@
 // coastal départements coloured by tsunami message level. Only changed data is pushed to the GPU.
 import { circleRing } from '../sim/geo.js';
 import { RT_RAMP } from '../sim/intensity.js';
+
+// Same colour ramp, driven by the station's feature-state so colours change without re-tiling.
+const RT_RAMP_FS = [...RT_RAMP.slice(0, 2), ['coalesce', ['feature-state', 'i'], 0], ...RT_RAMP.slice(3)];
 import * as scale from './scale.js';
 
 const maplibregl = globalThis.maplibregl;
@@ -57,11 +60,14 @@ export class QuakeMap {
     m.addSource('tsu', { type: 'geojson', data: d.tsunami, promoteId: 'code' });
     this.stationsGeo = {
       type: 'FeatureCollection',
-      features: d.stations.map((s) => ({
-        type: 'Feature', geometry: { type: 'Point', coordinates: [s[1], s[0]] }, properties: { i: 0, ic: '', k: 0 },
+      features: d.stations.map((s, idx) => ({
+        type: 'Feature', id: idx, geometry: { type: 'Point', coordinates: [s[1], s[0]] }, properties: {},
       })),
     };
+    this.stLevel = new Float32Array(d.stations.length).fill(NaN); // last value sent per station
+    this.stClass = new Int8Array(d.stations.length);
     m.addSource('stations', { type: 'geojson', data: this.stationsGeo });
+    m.addSource('stations-rt', { type: 'geojson', data: empty() });
     m.addSource('obs', { type: 'geojson', data: empty() });
     m.addSource('waves', { type: 'geojson', data: empty() });
 
@@ -90,7 +96,7 @@ export class QuakeMap {
     });
     m.addLayer({
       id: 'stations', type: 'circle', source: 'stations',
-      paint: { 'circle-color': RT_RAMP, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2.4, 10, 6], 'circle-stroke-width': 0.6, 'circle-stroke-color': 'rgba(0,0,0,.5)' },
+      paint: { 'circle-color': RT_RAMP_FS, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2.4, 10, 6], 'circle-stroke-width': 0.6, 'circle-stroke-color': 'rgba(0,0,0,.5)' },
     });
     m.addLayer({ id: 'wave-s-fill', type: 'fill', source: 'waves', filter: ['==', ['get', 'kind'], 'S'], paint: { 'fill-color': '#ff3b30', 'fill-opacity': 0.14 } });
     m.addLayer({
@@ -98,7 +104,7 @@ export class QuakeMap {
       paint: { 'line-color': ['match', ['get', 'kind'], 'P', '#e8eef5', '#ff3b30'], 'line-width': ['match', ['get', 'kind'], 'S', 2.4, 1.3] },
     });
     m.addLayer({
-      id: 'stations-rt', type: 'symbol', source: 'stations', filter: ['!=', ['get', 'ic'], ''],
+      id: 'stations-rt', type: 'symbol', source: 'stations-rt',
       layout: { 'icon-image': ['get', 'ic'], 'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.45, 10, 0.8], 'symbol-sort-key': ['-', 0, ['get', 'k']], 'icon-allow-overlap': false },
     });
     m.addLayer({
@@ -157,7 +163,8 @@ export class QuakeMap {
     this.map.setPaintProperty('dep-fill', 'fill-color', depFill());
     this.depState.clear();
     this._obsKey = null;
-    for (const f of this.stationsGeo.features) f.properties.i = NaN;
+    this.stLevel.fill(NaN);
+    this.stClass.fill(-1);
   }
 
   setView(view) {
@@ -171,21 +178,28 @@ export class QuakeMap {
     m.setPaintProperty('dep-fill', 'fill-opacity', view === 'tsunami' ? 0.35 : 1);
   }
 
+  // Colours go out as feature-state (only for stations whose value changed); the small source
+  // of numbered circles is rebuilt only when some station's intensity class changes.
   setStations(intensities) {
+    const m = this.map;
+    if (!m.getSource('stations')) return;
     const f = this.stationsGeo.features;
-    let changed = false;
+    let classChanged = false;
     for (let i = 0; i < f.length; i++) {
       const v = Math.round(intensities[i] * 10) / 10;
-      const p = f[i].properties;
-      if (p.i === v) continue;
-      p.i = v;
-      const key = scale.fromEms(v);
-      const k = scale.rank(key);
-      p.k = k;
-      p.ic = key ? `${scale.getScale()}-ci${k}` : '';
-      changed = true;
+      if (this.stLevel[i] === v) continue;
+      this.stLevel[i] = v;
+      m.setFeatureState({ source: 'stations', id: i }, { i: v });
+      const k = scale.rank(scale.fromEms(v));
+      if (k !== this.stClass[i]) { this.stClass[i] = k; classChanged = true; }
     }
-    if (changed) this.map.getSource('stations')?.setData(this.stationsGeo);
+    if (!classChanged) return;
+    const icons = [];
+    for (let i = 0; i < f.length; i++) {
+      const k = this.stClass[i];
+      if (k >= 1) icons.push({ type: 'Feature', geometry: f[i].geometry, properties: { ic: `${scale.getScale()}-ci${k}`, k } });
+    }
+    m.getSource('stations-rt').setData({ type: 'FeatureCollection', features: icons });
   }
 
   setObserved(points) {
@@ -241,7 +255,7 @@ export class QuakeMap {
     this.blinkTimer = setInterval(() => {
       if (document.hidden) return;
       lit = !lit;
-      m.setPaintProperty('tsu-line', 'line-opacity', lit ? 1 : ['match', ['coalesce', ['feature-state', 'lvl'], ''], 'alerte', 0.12, 1]);
+      m.setPaintProperty('tsu-line', 'line-opacity', lit ? 1 : 0.12); // every coloured coast blinks
     }, 550);
   }
 

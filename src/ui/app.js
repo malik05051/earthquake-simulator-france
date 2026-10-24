@@ -28,7 +28,9 @@ const PRESETS = [
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'quakesim-fr.v1';
-const P = { lang: 'fr', scale: 'ems', volume: 0.7, speech: false, eew: true, autoswitch: true, follow: true, lowpower: false, ...load(STORE + '.prefs', {}) };
+const P = { lang: 'fr', scale: 'ems', volume: 0.7, speech: true, eew: true, autoswitch: true, follow: true, lowpower: false, ...load(STORE + '.prefs', {}) };
+// Speech used to be off by default; switch it back on once for settings saved back then.
+if (!P.speechV2) { P.speech = true; P.speechV2 = true; }
 let history = load(STORE + '.history', []);
 
 const state = {
@@ -364,11 +366,11 @@ function render(force) {
   if (force || now - state.lastSide >= 250) { state.lastSide = now; renderClock(); renderCards(); renderTimeline(); }
 }
 
-// The P and S rings move every frame (30 fps in power-saver mode), independently of the
-// slower map refresh, so they expand smoothly.
+// The P and S rings move at up to 60 fps (30 in power-saver mode), independently of the
+// slower map refresh, so they expand smoothly without redrawing at high-refresh-rate speeds.
 function renderWaves(now, force) {
   if (!state.quake || state.view !== 'realtime') return;
-  if (!force && P.lowpower && now - state.lastWave < 33) return;
+  if (!force && now - state.lastWave < (P.lowpower ? 33 : 16)) return;
   state.lastWave = now;
   const q = state.quake;
   const t = state.t;
@@ -413,7 +415,8 @@ function renderCards() {
     } else if (state.view === 'info') {
       if (info) {
         html += infoCard(info, ctx);
-        if (info.type !== 'auto') html += deptListCard(state.sim.deptsAt(Infinity), ctx);
+        const felt = state.sim.deptsAt(info.type === 'auto' ? state.t : Infinity);
+        if (felt.size) html += deptListCard(felt, ctx);
       } else {
         html += idleCard(state.t < 0 ? t('waitingQuake') : t('noReportYet'));
       }
@@ -442,19 +445,25 @@ function renderMap() {
   const tt = state.t;
   const q = state.quake;
   const { eew, info, tsunami } = currentReports(tt);
-  m.setBlink(state.view === 'tsunami' && tsunami?.level === 'alerte');
+  m.setBlink(state.view === 'tsunami' && !!tsunami && tsunami.areas.size > 0);
   if (state.view === 'realtime') {
     for (let i = 0; i < rt.length; i++) rt[i] = sim.realtime(i, tt);
     m.setStations(rt);
     checkShaking();
     m.setAreas(new Map(), eew ? eew.forecast : new Map(), eew && eew.isAlert ? eew.alertAreas : new Set());
   } else {
-    const felt = info && info.type !== 'auto' ? sim.deptsAt(Infinity) : new Map();
+    // From the automatic location on, show what has been felt so far (it fills in as the
+    // waves arrive); from the felt-intensity report on, the complete picture.
+    const live = info?.type === 'auto';
+    const felt = !info ? new Map() : live ? sim.deptsAt(tt) : sim.deptsAt(Infinity);
     m.setAreas(felt, new Map(), new Set());
     if (state.view === 'info') {
       const pts = [];
-      if (info && info.type !== 'auto') {
-        state.data.stations.forEach((s, i) => { const k = classIndex(sim.st.peak[i]); if (k >= 2) pts.push({ lat: s[0], lon: s[1], k }); });
+      if (info) {
+        state.data.stations.forEach((s, i) => {
+          const k = classIndex(live ? sim.observed(i, tt) : sim.st.peak[i]);
+          if (k >= 2) pts.push({ lat: s[0], lon: s[1], k });
+        });
       }
       m.setObserved(pts);
     } else {

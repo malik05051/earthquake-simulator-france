@@ -20,10 +20,16 @@ function ac() {
   return ctx;
 }
 
+// Let the audio device sleep once nothing has been playing for a while (saves power). The
+// deadline only ever moves later, so a short alert can't cut off a longer announcement.
 let idleTimer = null;
+let busyUntil = 0;
 function scheduleSuspend(ms) {
+  busyUntil = Math.max(busyUntil, performance.now() + ms);
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (ctx && ctx.state === 'running') ctx.suspend(); }, ms + 1500);
+  idleTimer = setTimeout(() => {
+    if (ctx && ctx.state === 'running' && performance.now() >= busyUntil) ctx.suspend();
+  }, busyUntil - performance.now() + 1500);
 }
 
 export function setVolume(v) { volume = v; if (master) master.gain.value = v; }
@@ -163,20 +169,89 @@ export function preload() {
 }
 
 // ------------------------------------------------------------------ speech
-let voices = [];
-function pickVoices() { voices = speechSynthesis.getVoices(); }
-if ('speechSynthesis' in globalThis) { pickVoices(); speechSynthesis.onvoiceschanged = pickVoices; }
+// Announcements are spoken through Scratch's online speech service, the same voices the
+// original web project used. Without internet access the system's Web Speech voices are used
+// if any are installed (Electron on Linux usually has none).
+const SYNTH_URL = 'https://synthesis-service.scratch.mit.edu/synth';
+let speechQueue = Promise.resolve();
+let speechGen = 0;
+let speechSrc = null;
 
-export function say(text, { interrupt = false } = {}) {
-  if (!speechOn || !('speechSynthesis' in globalThis)) return;
-  if (interrupt) speechSynthesis.cancel();
-  const fr = getLang() === 'fr';
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = fr ? 'fr-FR' : 'en-GB';
-  const v = voices.find((x) => x.lang.replace('_', '-').startsWith(fr ? 'fr' : 'en'));
-  if (v) u.voice = v;
-  u.volume = Math.min(1, volume * 1.2);
-  speechSynthesis.speak(u);
+// The service accepts at most 128 characters: split at sentence or clause boundaries.
+function chunks(text) {
+  const out = [];
+  let cur = '';
+  for (const part of text.split(/(?<=[.!?,;:])\s+/)) {
+    if ((cur + ' ' + part).trim().length > 120 && cur) { out.push(cur.trim()); cur = ''; }
+    cur += ' ' + part;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.flatMap((c) => (c.length <= 128 ? [c] : c.match(/.{1,120}(\s|$)/g)));
 }
 
-export function stopSpeech() { if ('speechSynthesis' in globalThis) speechSynthesis.cancel(); }
+async function fetchSpeech(text, locale) {
+  try {
+    const url = `${SYNTH_URL}?locale=${locale}&gender=female&text=${encodeURIComponent(text)}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    return await ac().decodeAudioData(await r.arrayBuffer());
+  } catch { return null; }
+}
+
+function playSpeech(buffer) {
+  return new Promise((res) => {
+    const src = ac().createBufferSource();
+    src.buffer = buffer;
+    src.connect(master);
+    src.onended = () => { if (speechSrc === src) speechSrc = null; res(); };
+    speechSrc = src;
+    src.start();
+    scheduleSuspend(buffer.duration * 1000);
+  });
+}
+
+function systemSay(text, locale) {
+  return new Promise((res) => {
+    if (!('speechSynthesis' in globalThis)) return res();
+    const voices = speechSynthesis.getVoices();
+    const lang = locale.slice(0, 2);
+    const v = voices.find((x) => x.lang.replace('_', '-') === locale) || voices.find((x) => x.lang.startsWith(lang));
+    if (!v) return res();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = locale;
+    u.voice = v;
+    u.volume = Math.min(1, volume * 1.2);
+    u.onend = res;
+    u.onerror = res;
+    speechSynthesis.speak(u);
+  });
+}
+
+export function say(text, { interrupt = false } = {}) {
+  if (!speechOn) return;
+  if (interrupt) stopSpeech();
+  const gen = speechGen;
+  const locale = speechLocale();
+  for (const part of chunks(text)) {
+    const audio = fetchSpeech(part, locale); // download while earlier parts are playing
+    speechQueue = speechQueue.then(async () => {
+      if (gen !== speechGen) return;
+      const buffer = await audio;
+      if (gen !== speechGen) return;
+      if (buffer) await playSpeech(buffer);
+      else await systemSay(part, locale);
+    }).catch(() => {});
+  }
+}
+
+export function stopSpeech() {
+  speechGen++;
+  try { speechSrc?.stop(); } catch { /* already stopped */ }
+  speechSrc = null;
+  speechQueue = Promise.resolve();
+  if ('speechSynthesis' in globalThis) speechSynthesis.cancel();
+}
+
+function speechLocale() {
+  return getLang() === 'fr' ? 'fr-FR' : 'en-GB';
+}

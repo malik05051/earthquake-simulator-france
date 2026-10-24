@@ -1,7 +1,7 @@
 {
   "name": "quake-sim-france",
   "productName": "Simulateur de seismes France",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Simulateur de séismes pour la France (français / English)",
   "main": "main.js",
   "author": "malik05051",
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.mjs",
-    "dist": "electron-builder --linux AppImage"
+    "dist": "electron-builder --linux AppImage",
+    "dist:win": "electron-builder --win nsis portable --x64"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1"
@@ -32,6 +33,21 @@
       "category": "Science",
       "icon": "build/icon.png",
       "artifactName": "QuakeSimulatorFrance-${version}-${arch}.AppImage"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "QuakeSimulatorFrance-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "QuakeSimulatorFrance-Portable-${version}.exe"
     }
   },
   "allowScripts": {
