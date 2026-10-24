@@ -1,7 +1,8 @@
 // MapLibre map for France: départements coloured by EMS-98 intensity, stations, wave fronts,
 // coastal départements coloured by tsunami message level. Only changed data is pushed to the GPU.
 import { circleRing } from '../sim/geo.js';
-import { CLASSES, CLASS_COLOR, CLASS_TEXT, classIndex, RT_RAMP } from '../sim/intensity.js';
+import { RT_RAMP } from '../sim/intensity.js';
+import * as scale from './scale.js';
 
 const maplibregl = globalThis.maplibregl;
 
@@ -10,12 +11,17 @@ const LAND = '#2f343b';
 const FRANCE = '#3b4148';
 export const TSUNAMI_COLOR = { alerte: '#ef2f2f', vigilance: '#ff9a1f', information: '#f5d327' };
 
+// Fill colour from the class rank stored in feature-state, for the current display scale.
 const classFill = (prop) => {
   const m = ['match', ['coalesce', ['feature-state', prop], 0]];
-  CLASSES.forEach((c, i) => { if (i > 0) m.push(i, CLASS_COLOR[c]); });
+  for (const key of scale.allKeys()) { const r = scale.rank(key); if (r > 0) m.push(r, scale.color(key)); }
   m.push(FRANCE);
   return m;
 };
+const depFill = () => ['case',
+  ['>', ['coalesce', ['feature-state', 'k'], 0], 0], classFill('k'),
+  ['>', ['coalesce', ['feature-state', 'f'], 0], 0], classFill('f'),
+  FRANCE];
 
 export class QuakeMap {
   constructor(el, data) {
@@ -63,12 +69,7 @@ export class QuakeMap {
     m.addLayer({ id: 'borders', type: 'line', source: 'borders', paint: { 'line-color': '#5a626d', 'line-width': 0.8 } });
     m.addLayer({
       id: 'dep-fill', type: 'fill', source: 'dep',
-      paint: {
-        'fill-color': ['case',
-          ['>', ['coalesce', ['feature-state', 'k'], 0], 0], classFill('k'),
-          ['>', ['coalesce', ['feature-state', 'f'], 0], 0], classFill('f'),
-          FRANCE],
-      },
+      paint: { 'fill-color': depFill() },
     });
     m.addLayer({ id: 'dep-line', type: 'line', source: 'dep', paint: { 'line-color': '#78818c', 'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 9, 1.2] } });
     m.addLayer({
@@ -107,28 +108,56 @@ export class QuakeMap {
     this.setView(this.view);
   }
 
+  // Square (observed) and round (live) intensity icons for both display scales, drawn once.
   addIcons() {
+    const keep = scale.getScale();
+    for (const sc of ['ems', 'jma']) {
+      scale.setScale(sc);
+      for (const key of scale.allKeys()) this.addIconPair(sc, key);
+    }
+    scale.setScale(keep);
+  }
+
+  addIconPair(sc, cls) {
     const w = 56;
     const h = 44;
-    CLASSES.forEach((cls, k) => {
-      if (k === 0) return;
-      for (const shape of ['sq', 'ci']) {
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        const g = c.getContext('2d');
-        const r = shape === 'sq' ? 7 : h / 2;
-        g.fillStyle = 'rgba(0,0,0,.55)';
-        roundRect(g, 1, 1, w - 2, h - 2, r); g.fill();
-        g.fillStyle = CLASS_COLOR[cls];
-        roundRect(g, 3, 3, w - 6, h - 6, r - 2); g.fill();
-        g.fillStyle = CLASS_TEXT[cls];
-        g.textAlign = 'center';
-        g.textBaseline = 'middle';
+    const k = scale.rank(cls);
+    if (k <= 0) return;
+    for (const shape of ['sq', 'ci']) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const g = c.getContext('2d');
+      const r = shape === 'sq' ? 7 : h / 2;
+      g.fillStyle = 'rgba(0,0,0,.55)';
+      roundRect(g, 1, 1, w - 2, h - 2, r); g.fill();
+      g.fillStyle = scale.color(cls);
+      roundRect(g, 3, 3, w - 6, h - 6, r - 2); g.fill();
+      g.fillStyle = scale.text(cls);
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      if (sc === 'ems') {
         g.font = `800 ${cls.length > 3 ? 18 : cls.length > 2 ? 21 : 25}px "Noto Serif", "Times New Roman", serif`;
         g.fillText(cls, w / 2, h / 2 + 1);
-        this.map.addImage(`${shape}${k}`, g.getImageData(0, 0, w, h), { pixelRatio: 2 });
+      } else if (cls.length > 1) {
+        g.font = '800 26px "Noto Sans", Arial, sans-serif';
+        g.fillText(cls[0], w / 2 - 5, h / 2 + 2);
+        g.font = '800 17px "Noto Sans", Arial, sans-serif';
+        g.fillText(cls[1] === '-' ? '−' : '+', w / 2 + 10, h / 2 - 7);
+      } else {
+        g.font = '800 28px "Noto Sans", Arial, sans-serif';
+        g.fillText(cls, w / 2, h / 2 + 2);
       }
-    });
+      this.map.addImage(`${sc}-${shape}${k}`, g.getImageData(0, 0, w, h), { pixelRatio: 2 });
+    }
+  }
+
+  // Redraw everything that depends on the display scale.
+  refreshScale() {
+    if (!this.map.getLayer('dep-fill')) return;
+    this.map.setPaintProperty('dep-fill', 'fill-color', depFill());
+    this.depState.clear();
+    this._obsKey = null;
+    for (const f of this.stationsGeo.features) f.properties.i = NaN;
   }
 
   setView(view) {
@@ -150,9 +179,10 @@ export class QuakeMap {
       const p = f[i].properties;
       if (p.i === v) continue;
       p.i = v;
-      const k = classIndex(v);
+      const key = scale.fromEms(v);
+      const k = scale.rank(key);
       p.k = k;
-      p.ic = k >= 2 ? `ci${k}` : '';
+      p.ic = key ? `${scale.getScale()}-ci${k}` : '';
       changed = true;
     }
     if (changed) this.map.getSource('stations')?.setData(this.stationsGeo);
@@ -164,7 +194,11 @@ export class QuakeMap {
     this._obsKey = key;
     this.map.getSource('obs')?.setData({
       type: 'FeatureCollection',
-      features: points.map((p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { ic: `sq${p.k}`, k: p.k } })),
+      features: points.map((p) => {
+        const key = scale.fromEmsClass(p.k);
+        const k = scale.rank(key);
+        return { type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { ic: key ? `${scale.getScale()}-sq${k}` : '', k } };
+      }).filter((f) => f.properties.ic),
     });
   }
 
@@ -183,8 +217,9 @@ export class QuakeMap {
     if (!m.getSource('dep')) return;
     for (const f of this.data.departements.features) {
       const code = f.properties.code;
-      const k = observed.get(code) || 0;
-      const fk = forecast.get(code) || 0;
+      // engine values are EMS classes; feature-state holds ranks in the display scale
+      const k = scale.rank(scale.fromEmsClass(observed.get(code) || 0));
+      const fk = scale.rank(scale.fromEmsClass(forecast.get(code) || 0));
       const w = alertSet.has(code);
       const key = `${k}|${fk}|${w}`;
       if (this.depState.get(code) === key) continue;
@@ -244,9 +279,10 @@ export class QuakeMap {
   }
 }
 
+// Badge for a class key of the current display scale.
 export function badgeHtml(cls, extra = '') {
   if (!cls) return `<span class="badge ${extra}" style="background:#3a4552;color:#cfd8e3">–</span>`;
-  return `<span class="badge roman ${extra}" style="background:${CLASS_COLOR[cls]};color:${CLASS_TEXT[cls]}">${cls}</span>`;
+  return `<span class="badge ${scale.fontClass()} ${extra}" style="background:${scale.color(cls)};color:${scale.text(cls)}">${scale.valueHtml(cls)}</span>`;
 }
 
 function roundRect(g, x, y, w, h, r) {

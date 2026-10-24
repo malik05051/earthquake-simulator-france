@@ -20,6 +20,7 @@ chmod +x QuakeSimulatorFrance-*.AppImage
 - **Bulletins** : localisation automatique au bout d’environ 2 minutes (magnitude ML provisoire), intensités ressenties, puis bulletin révisé (Mw).
 - **Messages tsunami** dans le style du CENALT : *Information*, *Vigilance* ou *Alerte*, pour chacun des 26 départements littoraux, avec l’heure d’arrivée estimée. Le littoral en *Alerte* clignote.
 - **Alerte précoce fictive**, désactivable : la France n’a **pas** de système public d’alerte sismique précoce. Cette fonction n’existe que pour la simulation et elle est signalée comme telle.
+- **Deux échelles d’intensité**, au choix dans les réglages : EMS-98 (européenne, par défaut) ou shindo (japonaise, JMA). Le shindo est une conversion approximative depuis l’EMS-98 (intensité instrumentale JMA ≈ 0,8 × EMS − 1,2).
 - **Épicentres nommés** comme le font les organismes français, par distance et direction depuis une commune (« 12 km NE de Grenoble »).
 
 ## Utilisation
@@ -61,5 +62,6 @@ An earthquake simulator for metropolitan France, in French and English, packaged
 - **Bulletins:** an automatic location after about 2 minutes (provisional ML), felt intensities, then a revised bulletin (Mw).
 - **Tsunami:** CENALT-style messages (*Information*, *Vigilance* or *Alerte*) for each of the 26 coastal départements, with estimated arrival times. Coasts on *Alerte* blink.
 - **Fictional early warning**, which you can turn off: France has **no** public earthquake early-warning system, and the app labels this feature as fictional.
+- **Two intensity scales**, chosen in Settings: EMS-98 (European, default) or shindo (Japanese, JMA). Shindo is an approximate conversion from EMS-98 (JMA instrumental intensity ≈ 0.8 × EMS − 1.2).
 - **Epicenter names:** distance and direction from a commune ("12 km NE of Grenoble"), the way French agencies report them.
 - **Language:** switch between French and English in Settings. The whole interface, dates, numbers and spoken announcements follow the chosen language.

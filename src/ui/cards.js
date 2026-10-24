@@ -1,5 +1,5 @@
 // Sidebar cards for the France app (all text goes through i18n).
-import { CLASSES, CLASS_COLOR, CLASS_TEXT, CLASS_DESC, classOf } from '../sim/intensity.js';
+import * as scale from './scale.js';
 import { badgeHtml, TSUNAMI_COLOR } from './map.js';
 import { t, getLang } from './i18n.js';
 
@@ -11,11 +11,12 @@ export function fmtDate(d) {
   return getLang() === 'fr' ? `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}` : `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 }
 
+// cls: class key in the current display scale (see scale.js)
 function bigBox(cls, label) {
-  const bg = cls ? CLASS_COLOR[cls] : '#3a4552';
-  const fg = cls ? CLASS_TEXT[cls] : '#cfd8e3';
-  const desc = cls ? `<span class="bb-desc">${CLASS_DESC[getLang()][cls]}</span>` : '';
-  return `<div class="bigbox" style="background:${bg};color:${fg}"><span class="bb-label">${label}${desc}</span><span class="bb-value roman">${cls || '?'}</span></div>`;
+  const bg = cls ? scale.color(cls) : '#3a4552';
+  const fg = cls ? scale.text(cls) : '#cfd8e3';
+  const desc = cls ? `<span class="bb-desc">${scale.desc(cls)}</span>` : '';
+  return `<div class="bigbox" style="background:${bg};color:${fg}"><span class="bb-label">${label}${desc}</span><span class="bb-value ${scale.fontClass()}">${scale.valueHtml(cls)}</span></div>`;
 }
 
 function magColor(m) { return m >= 6 ? '#c43ad6' : m >= 5 ? '#ef2f2f' : m >= 4 ? '#f08a24' : m >= 3 ? '#f5d327' : '#45a8f5'; }
@@ -39,7 +40,7 @@ export function eewCard(r, ctx) {
     <div class="card-body">
       <div class="place">${esc(place)}</div>
       <div class="sub">${t('occurred', { date: fmtDate(ctx.clock(0)), time: fmtTime(ctx.clock(0)) })}</div>
-      ${bigBox(r.maxClass, t('estMax'))}
+      ${bigBox(scale.fromEmsClass(r.maxClass), t('estMax'))}
       ${magDepth(r.mag, r.depth)}
       ${r.isAlert ? `<div class="alertnote">${t('eewStrong')}</div>` : ''}
       <div class="sub fine">${t('eewNote')}</div>
@@ -48,8 +49,8 @@ export function eewCard(r, ctx) {
 }
 
 export function shakingCard(list, ctx) {
-  const top = list.length ? classOf(list[0].i) : null;
-  const rows = list.slice(0, 8).map((x) => `<div class="area-row">${badgeHtml(classOf(x.i))}<span class="names">${esc(deptName(x.code, ctx))}</span></div>`).join('');
+  const top = list.length ? scale.fromEms(list[0].i) : null;
+  const rows = list.slice(0, 8).map((x) => `<div class="area-row">${badgeHtml(scale.fromEms(x.i))}<span class="names">${esc(deptName(x.code, ctx))}</span></div>`).join('');
   return `
   <div class="card">
     <div class="card-head">${t('shaking')}</div>
@@ -75,7 +76,7 @@ export function infoCard(rep, ctx) {
   <div class="card">
     <div class="card-head"><span class="ico">i</span>${title}</div>
     <div class="card-body">
-      ${showMax ? bigBox(q.maxClass, t('maxIntensity')) : ''}
+      ${showMax ? bigBox(scale.fromEmsClass(q.maxClass), t('maxIntensity')) : ''}
       <div class="sub">${t('aroundTime', { time: `${fmtDate(origin)} ${fmtTime(origin, false)}` })}</div>
       <div class="place">${esc(place)}</div>
       ${q.dept ? `<div class="sub">${esc(q.dept.name)} (${esc(q.dept.code)})</div>` : ''}
@@ -86,14 +87,17 @@ export function infoCard(rep, ctx) {
   </div>`;
 }
 
+// regions: Map code -> EMS class; grouped by class in the display scale
 export function deptListCard(regions, ctx) {
   const groups = new Map();
   for (const [code, k] of regions) {
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(code);
+    const key = scale.fromEmsClass(k);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(code);
   }
-  const rows = [...groups.keys()].sort((a, b) => b - a).map((k) => `
-    <div class="area-row">${badgeHtml(CLASSES[k])}<span class="names">${esc(groups.get(k).map((c) => deptName(c, ctx)).sort().join(', '))}</span></div>`).join('');
+  const rows = [...groups.keys()].sort((a, b) => scale.rank(b) - scale.rank(a)).map((key) => `
+    <div class="area-row">${badgeHtml(key)}<span class="names">${esc(groups.get(key).map((c) => deptName(c, ctx)).sort().join(', '))}</span></div>`).join('');
   return `<div class="card"><div class="card-head">${t('byDept')}</div><div class="card-body"><div class="areas tall">${rows}</div></div></div>`;
 }
 
@@ -147,11 +151,11 @@ export function idleCard(title = t('noQuake')) {
 
 export function historyItem(h, active) {
   const d = new Date(h.origin);
-  const cls = h.maxClass;
+  const cls = scale.fromEmsClass(h.maxClass);
   const mag = getLang() === 'fr' ? h.mag.toFixed(1).replace('.', ',') : h.mag.toFixed(1);
   return `
   <div class="hist ${active ? 'active' : ''}" data-id="${h.id}">
-    <div class="hbox" style="background:${cls ? CLASS_COLOR[cls] : '#3a4552'};color:${cls ? CLASS_TEXT[cls] : '#cfd8e3'}"><span>EMS</span><b class="roman">${cls || '–'}</b></div>
+    <div class="hbox" style="background:${cls ? scale.color(cls) : '#3a4552'};color:${cls ? scale.text(cls) : '#cfd8e3'}"><span>${scale.shortName()}</span><b class="${scale.fontClass()}">${cls ? scale.valueHtml(cls) : '–'}</b></div>
     <div class="info">
       <div class="name">${esc(h.name)}</div>
       <div class="line2">${fmtDate(d)} ${fmtTime(d, false)}</div>
@@ -165,7 +169,8 @@ export function legendHtml(view) {
     return `<div class="lg-title">${t('coastColours')}</div>` + ['alerte', 'vigilance', 'information'].map((l) =>
       `<div class="lg-row"><i style="background:${TSUNAMI_COLOR[l]}"></i>${t('tsunamiShort')[l]}</div>`).join('');
   }
-  const title = view === 'realtime' ? t('mapForecast') : t('mapColours');
-  return `<div class="lg-title">${title}</div>` + CLASSES.slice(2, 11).reverse().map((c) =>
-    `<div class="lg-row"><i style="background:${CLASS_COLOR[c]}"></i><b class="roman">${c}</b> ${CLASS_DESC[getLang()][c]}</div>`).join('');
+  const title = view === 'realtime' ? t('mapForecast') : t(scale.isJma() ? 'mapColoursJma' : 'mapColours');
+  return `<div class="lg-title">${title}</div>` + scale.keys().slice().reverse().map((c) =>
+    `<div class="lg-row"><i style="background:${scale.color(c)}"></i><b class="${scale.fontClass()}">${scale.valueHtml(c)}</b> ${scale.desc(c)}</div>`).join('')
+    + (scale.isJma() ? `<div class="lg-note">${t('scaleNote')}</div>` : '');
 }

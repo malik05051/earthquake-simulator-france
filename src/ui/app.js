@@ -12,6 +12,7 @@ import {
   clearCustomSound, customSoundName,
 } from './audio.js';
 import { t, setLang, getLang, applyStatic } from './i18n.js';
+import * as scale from './scale.js';
 
 // Approximate parameters of notable French earthquakes and two scenarios.
 const PRESETS = [
@@ -27,7 +28,7 @@ const PRESETS = [
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'quakesim-fr.v1';
-const P = { lang: 'fr', volume: 0.7, speech: false, eew: true, autoswitch: true, follow: true, lowpower: false, ...load(STORE + '.prefs', {}) };
+const P = { lang: 'fr', scale: 'ems', volume: 0.7, speech: false, eew: true, autoswitch: true, follow: true, lowpower: false, ...load(STORE + '.prefs', {}) };
 let history = load(STORE + '.history', []);
 
 const state = {
@@ -42,6 +43,7 @@ async function loadJson(name) { return (await fetch(`data/${name}`)).json(); }
 
 async function init() {
   setLang(P.lang);
+  scale.setScale(P.scale);
   applyStatic();
   const [stations, departements, tsunami, land, borders, towns] = await Promise.all(
     ['stations.json', 'departements.json', 'tsunami.json', 'land.json', 'borders.json', 'towns.json'].map(loadJson));
@@ -119,6 +121,13 @@ function wireUi() {
     $('legend').innerHTML = legendHtml(state.view);
     lastCards = ''; render(true);
   });
+  $('scale').addEventListener('change', (e) => {
+    P.scale = e.target.value; savePrefs(); scale.setScale(P.scale);
+    state.map.refreshScale();
+    $('legend').innerHTML = legendHtml(state.view);
+    renderHistory();
+    lastCards = ''; render(true);
+  });
   $('volume').addEventListener('input', (e) => { P.volume = e.target.value / 100; savePrefs(); applyPrefs(); });
   $('speech').addEventListener('change', (e) => { P.speech = e.target.checked; savePrefs(); applyPrefs(); });
   $('eew').addEventListener('change', (e) => { P.eew = e.target.checked; savePrefs(); lastCards = ''; render(true); });
@@ -164,6 +173,7 @@ function wireUi() {
 
 function applyPrefs() {
   $('lang').value = P.lang;
+  $('scale').value = P.scale;
   $('volume').value = Math.round(P.volume * 100);
   $('vol-val').textContent = `${Math.round(P.volume * 100)}%`;
   $('speech').checked = P.speech;
@@ -463,7 +473,7 @@ function announce(ev) {
     const key = eewKey(r);
     if (r.serial === 1) {
       play(r.isAlert ? 'eewAlert' : 'eew');
-      say(t('sayEew', { place: place(r.lat, r.lon), cls: r.maxClass ?? '?' }), { interrupt: true });
+      say(t('sayEew', { place: place(r.lat, r.lon), cls: scale.spoken(scale.fromEmsClass(r.maxClass)) }), { interrupt: true });
     } else if (r.isAlert && !state.alerted) {
       play('eewAlert');
       const areas = [...r.alertAreas].slice(0, 5).map((c) => state.data.depByCode.get(c)?.properties.name).join(', ');
@@ -487,7 +497,7 @@ function announce(ev) {
     play('felt');
     const felt = [...state.sim.deptsAt(Infinity)].sort((a, b) => b[1] - a[1]);
     const top = felt.filter(([, k]) => k === felt[0]?.[1]).map(([c]) => state.data.depByCode.get(c)?.properties.name).slice(0, 3).join(', ');
-    say(t('sayFelt', { cls: q.maxClass ?? '?', areas: top }));
+    say(t('sayFelt', { cls: scale.spoken(scale.fromEmsClass(q.maxClass)), areas: top }));
     toast(t('felt'));
   } else if (ev.kind === 'final') {
     autoView('info');
