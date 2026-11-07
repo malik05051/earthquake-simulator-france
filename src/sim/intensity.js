@@ -1,9 +1,13 @@
 // EMS-98 macroseismic intensity helpers for France.
 //
-// Intensity prediction: a simplified equation of the usual form
-//   I = a·M − b·log10(R) − c·R + d   (R = hypocentral distance in km)
-// with coefficients chosen to match recent French events (Le Teil 2019, La Laigne 2023)
-// and the historical Lambesc 1909 earthquake. It is an illustration, not a hazard model.
+// Intensity prediction equation of the form used for metropolitan France by Bakun & Scotti
+// (2006) and Baumont et al. (2018):
+//   I = c1 + c2·Mw − 3.5·log10(R) − γ·R
+// with the geometric spreading β = −3.5 adopted for mainland France. R is the distance to the
+// finite rupture (ground.js) with a near-source term that grows with magnitude, so large
+// quakes saturate near the fault instead of reaching impossible values. c1 and c2 are fitted
+// to the epicentral intensities of Le Teil 2019, La Laigne 2023, Arette 1967, Lambesc 1909
+// and Basel 1356. It is an illustration, not a hazard model.
 
 export const CLASSES = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
@@ -41,12 +45,24 @@ export function classOf(i) {
   return k > 0 ? CLASSES[k] : null;
 }
 
-export function predictIntensity(m, depthKm, epiKm, amp = 1.0) {
-  const r = Math.max(3, Math.hypot(epiKm, Math.max(depthKm, 1)));
-  // larger ruptures saturate near the source
-  const sat = m > 6 ? (m - 6) * 0.25 : 0;
-  const i = 1.5 * m - 3.0 * Math.log10(r) - 0.0015 * r + 1.4 - sat + siteTerm(amp);
+const C1 = 1.9, C2 = 1.6, BETA = -3.5, GAMMA = 0.0015;
+
+// Intensity at distance rrup (km) from the rupture; amp is the station's site factor.
+export function intensityAt(mw, rrupKm, amp = 1.0) {
+  const m = Math.min(mw, 8.3);
+  const h0 = 2 + 0.003 * 10 ** (0.5 * m);
+  const r = Math.hypot(rrupKm, h0);
+  // beyond Mw 9.6 (larger than any recorded quake) shaking keeps growing, for fictional magnitudes
+  const i = C1 + C2 * m + BETA * Math.log10(r) - GAMMA * r + siteTerm(amp) + 1.2 * Math.max(0, mw - 9.6);
   return Math.max(0, Math.min(12, i));
+}
+
+// Point-source version (felt reports by area, fictional EEW forecasts): distance to the
+// rupture approximated by the hypocentral distance minus half the rupture length.
+export function predictIntensity(m, depthKm, epiKm, amp = 1.0) {
+  const half = 0.5 * Math.min(20000, 10 ** (-2.37 + 0.57 * m));
+  const r = Math.max(Math.min(depthKm, 300) * 0.5, Math.hypot(epiKm, depthKm) - half);
+  return intensityAt(m, r, amp);
 }
 
 export function siteTerm(amp) {

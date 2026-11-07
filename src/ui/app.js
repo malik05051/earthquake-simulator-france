@@ -1,11 +1,12 @@
 // App controller for the France simulator.
 import { Simulation, VP, VS, surfaceRadius } from '../sim/engine.js';
 import { PlaceNamer } from '../sim/epicenter.js';
+import { DepthGrid } from '../sim/tsunami.js';
 import { CLASSES, classIndex } from '../sim/intensity.js';
 import { QuakeMap } from './map.js';
 import {
   eewCard, shakingCard, infoCard, deptListCard, tsunamiCard, noTsunamiCard, idleCard, historyItem, legendHtml,
-  fmtTime, fmtDate, depthText,
+  fmtTime, fmtDate, depthText, metres,
 } from './cards.js';
 import {
   play, preload, say, stopSpeech, setVolume, setSpeech, SOUND_SLOTS, slotLabel, loadCustomSounds, setCustomSound,
@@ -16,12 +17,12 @@ import * as scale from './scale.js';
 
 // Approximate parameters of notable French earthquakes and two scenarios.
 const PRESETS = [
-  { id: 'leteil', fr: 'Le Teil 2019 (Mw 4,9)', en: 'Le Teil 2019 (Mw 4.9)', lat: 44.518, lon: 4.671, depth: 1, mag: 4.9 },
+  { id: 'leteil', fr: 'Le Teil 2019 (Mw 4,9)', en: 'Le Teil 2019 (Mw 4.9)', lat: 44.518, lon: 4.671, depth: 1, mag: 4.9, strike: 45, dip: 45 },
   { id: 'laigne', fr: 'La Laigne 2023 (Mw 4,9)', en: 'La Laigne 2023 (Mw 4.9)', lat: 46.21, lon: -0.80, depth: 4, mag: 4.9 },
-  { id: 'lambesc', fr: 'Lambesc 1909 (≈ M 6,0)', en: 'Lambesc 1909 (≈ M6.0)', lat: 43.65, lon: 5.40, depth: 10, mag: 6.0 },
-  { id: 'arette', fr: 'Arette 1967 (≈ M 5,3)', en: 'Arette 1967 (≈ M5.3)', lat: 43.08, lon: -0.70, depth: 10, mag: 5.3 },
-  { id: 'ligure', fr: 'Mer Ligure 1887 (≈ M 6,8)', en: 'Ligurian Sea 1887 (≈ M6.8)', lat: 43.70, lon: 8.05, depth: 10, mag: 6.8 },
-  { id: 'bale', fr: 'Bâle 1356 (≈ M 6,6)', en: 'Basel 1356 (≈ M6.6)', lat: 47.47, lon: 7.60, depth: 12, mag: 6.6 },
+  { id: 'lambesc', fr: 'Lambesc 1909 (≈ M 6,0)', en: 'Lambesc 1909 (≈ M6.0)', lat: 43.65, lon: 5.40, depth: 10, mag: 6.0, strike: 270, dip: 50 },
+  { id: 'arette', fr: 'Arette 1967 (≈ M 5,3)', en: 'Arette 1967 (≈ M5.3)', lat: 43.08, lon: -0.70, depth: 10, mag: 5.3, strike: 280 },
+  { id: 'ligure', fr: 'Mer Ligure 1887 (≈ M 6,8)', en: 'Ligurian Sea 1887 (≈ M6.8)', lat: 43.70, lon: 8.05, depth: 10, mag: 6.8, strike: 240, dip: 30 },
+  { id: 'bale', fr: 'Bâle 1356 (≈ M 6,6)', en: 'Basel 1356 (≈ M6.6)', lat: 47.47, lon: 7.60, depth: 12, mag: 6.6, strike: 30 },
   { id: 'ubaye', fr: 'Ubaye 2014 (M 4,8)', en: 'Ubaye 2014 (M4.8)', lat: 44.48, lon: 6.71, depth: 8, mag: 4.8 },
   { id: 'nice', fr: 'Scénario : large de Nice (M 7,0)', en: 'Scenario: off Nice (M7.0)', lat: 43.45, lon: 7.40, depth: 12, mag: 7.0 },
 ];
@@ -47,10 +48,11 @@ async function init() {
   setLang(P.lang);
   scale.setScale(P.scale);
   applyStatic();
-  const [stations, departements, tsunami, land, borders, towns] = await Promise.all(
-    ['stations.json', 'departements.json', 'tsunami.json', 'land.json', 'borders.json', 'towns.json'].map(loadJson));
+  const [stations, departements, tsunami, land, borders, towns, depth] = await Promise.all(
+    ['stations.json', 'departements.json', 'tsunami.json', 'land.json', 'borders.json', 'towns.json', 'depth.json'].map(loadJson));
   const data = { stations: stations.stations, departements, tsunami, land, borders };
   data.namer = new PlaceNamer(towns.towns, data.stations);
+  data.depth = new DepthGrid(depth); // ocean depths for the tsunami model
   data.depByCode = new Map(departements.features.map((f) => [f.properties.code, f]));
   state.data = data;
   state.rt = new Float32Array(data.stations.length);
@@ -87,6 +89,18 @@ function wireUi() {
   });
   $('mag').addEventListener('input', () => { sel.value = ''; syncSetupLabels(); });
   $('depth').addEventListener('input', () => { sel.value = ''; syncSetupLabels(); });
+  // exact values: the sliders are coarse over M up to 50 and depths down to 1000 km
+  for (const [num, range] of [['mag-num', 'mag'], ['depth-num', 'depth']]) {
+    $(num).addEventListener('input', () => {
+      const v = parseFloat($(num).value.replace(',', '.'));
+      if (!Number.isFinite(v)) return;
+      $(range).value = Math.min(+$(range).max, Math.max(+$(range).min, v));
+      sel.value = '';
+    });
+    $(num).addEventListener('change', () => { $(num).blur(); syncSetupLabels(); });
+    // typing digits must not trigger the app's keyboard shortcuts; Enter confirms
+    $(num).addEventListener('keydown', (e) => { if (e.key === 'Enter') $(num).blur(); e.stopPropagation(); });
+  }
   $('start').addEventListener('click', startPending);
   $('setup-close').addEventListener('click', closeSetup);
   $('new-quake').addEventListener('click', () => { resetSim(); openSetup(); });
@@ -200,8 +214,8 @@ function renderSoundSlots() {
 
 function syncSetupLabels() {
   const m = parseFloat($('mag').value).toFixed(1);
-  $('mag-val').textContent = getLang() === 'fr' ? m.replace('.', ',') : m;
-  $('depth-val').textContent = depthText(parseInt($('depth').value, 10));
+  if (document.activeElement !== $('mag-num')) $('mag-num').value = getLang() === 'fr' ? m.replace('.', ',') : m;
+  if (document.activeElement !== $('depth-num')) $('depth-num').value = parseInt($('depth').value, 10);
 }
 
 function setPending(lat, lon) {
@@ -245,6 +259,9 @@ function autoView(view) {
 function startPending() {
   if (!state.pending) return;
   const q = { lat: state.pending.lat, lon: state.pending.lon, depth: parseInt($('depth').value, 10), mag: parseFloat($('mag').value), origin: Date.now() + 5000 };
+  // a preset left unchanged keeps its fault orientation
+  const p = PRESETS.find((x) => x.id === $('preset').value);
+  if (p) Object.assign(q, { strike: p.strike, dip: p.dip });
   closeSetup();
   preload();
   startQuake(q, { autoplay: true });
@@ -284,7 +301,7 @@ function resetSim() {
 // ---------------------------------------------------------------- history
 function addHistory() {
   const q = state.quake;
-  history.unshift({ id: state.activeId, origin: q.origin, lat: q.lat, lon: q.lon, depth: q.depth, mag: q.mag, seed: q.seed, maxClass: q.maxClass });
+  history.unshift({ id: state.activeId, origin: q.origin, lat: q.lat, lon: q.lon, depth: q.depth, mag: q.mag, strike: q.strike, dip: q.dip, seed: q.seed, maxClass: q.maxClass });
   history = history.slice(0, 50);
   save(STORE + '.history', history);
 }
@@ -396,7 +413,7 @@ function renderClock() {
 function currentReports(tt) {
   const sim = state.sim;
   const eew = P.eew ? sim.eewAt(tt) : null;
-  const info = sim.reports.filter((r) => r.at <= tt && r.type !== 'tsunami').at(-1) || null;
+  const info = sim.reports.filter((r) => r.at <= tt && r.type !== 'tsunami' && r.type !== 'tsunamiObs').at(-1) || null;
   const tsunami = sim.reports.find((r) => r.type === 'tsunami' && r.at <= tt) ? sim.tsunami : null;
   return { eew: eew && !(eew.isFinal && tt - eew.at > 60) ? eew : null, info, tsunami };
 }
@@ -439,13 +456,15 @@ function renderMap() {
   if (!state.quake) {
     rt.fill(0);
     m.setStations(rt); m.setWaves(null, 0, 0); m.setAreas(new Map(), new Map(), new Set());
-    m.setTsunami(new Map()); m.setObserved([]); m.setBlink(false);
+    m.setTsunami(new Map()); m.setObserved([]); m.setBlink(false); m.setWaveField(null);
     return;
   }
   const tt = state.t;
   const q = state.quake;
   const { eew, info, tsunami } = currentReports(tt);
   m.setBlink(state.view === 'tsunami' && !!tsunami && tsunami.areas.size > 0);
+  // the wave itself is shown from the start, even before any message is issued
+  m.setWaveField(state.view === 'tsunami' ? sim.tsunami.field : null, state.data.depth, tt);
   if (state.view === 'realtime') {
     for (let i = 0; i < rt.length; i++) rt[i] = sim.realtime(i, tt);
     m.setStations(rt);
@@ -533,9 +552,22 @@ function announce(ev) {
     const ts = state.sim.tsunami;
     play({ alerte: 'tsunamiAlerte', vigilance: 'tsunamiVigilance', information: 'tsunamiInformation' }[ts.level]);
     const names = [...ts.areas].filter(([, a]) => a.level === ts.level).map(([c]) => state.data.depByCode.get(c)?.properties.name).slice(0, 4).join(', ');
-    say(t('sayTsunami', { title: t('tsunamiTitle')[ts.level], areas: names, advice: t('tsunamiAdvice')[ts.level] }), { interrupt: true });
+    say(t('sayTsunami', { title: t('tsunamiTitle')[ts.level], areas: names, h: spokenMetres(ts.maxHeight), advice: t('tsunamiAdvice')[ts.level] }), { interrupt: true });
     toast(t('tsunamiTitle')[ts.level]);
+  } else if (ev.kind === 'tsunamiObs') {
+    play('tsunamiObs');
+    const top = r.codes.map((c) => state.sim.tsunami.obs.find((x) => x.code === c)).sort((a, b) => b.height - a.height)[0];
+    const where = state.data.depByCode.get(top.code)?.properties.name ?? top.code;
+    say(t('sayTsunamiObs', { h: spokenMetres(top.height), where }));
+    toast(t('obsToast', { where, h: metres(top.height) }));
   }
+}
+
+function spokenMetres(h) {
+  const fr = getLang() === 'fr';
+  if (h >= 10) return `${Math.round(h)} ${fr ? 'mètres' : 'meters'}`;
+  if (h >= 1) return `${fr ? h.toFixed(1).replace('.', ',') : h.toFixed(1)} ${fr ? 'mètres' : 'meters'}`;
+  return `${Math.round(h * 100)} ${fr ? 'centimètres' : 'centimeters'}`;
 }
 
 let toastTimer = null;

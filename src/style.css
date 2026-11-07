@@ -140,6 +140,11 @@ button { font: inherit; color: inherit; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field > span { display: flex; justify-content: space-between; color: var(--muted); }
 .field b { color: var(--text); }
+.field input.num {
+  width: 4.6em; padding: 1px 4px; border: 1px solid var(--line, #333); border-radius: 4px;
+  background: transparent; color: var(--text); font: inherit; font-weight: 700; text-align: right;
+}
+.num-wrap { color: var(--text); font-weight: 700; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .kv { display: flex; flex-direction: column; background: var(--card); border-radius: 5px; padding: 5px 8px; min-width: 0; }
 .kv span { color: var(--muted); font-size: 11px; }
@@ -197,3 +202,10 @@ button.primary.small { padding: 5px 12px; }
 .badge.shindo { min-width: 26px; }
 .bb-value.shindo { font-size: 40px; }
 .lg-note { font-size: 10.5px; color: var(--muted); max-width: 190px; margin-top: 3px; }
+
+/* tsunami heights and observations */
+.tsu-name { display: flex; justify-content: space-between; gap: 8px; }
+.tsu-name b { font-variant-numeric: tabular-nums; }
+.pill-o { align-self: flex-start; background: #1f6fb2; color: #fff; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+.lg-grad { height: 10px; border-radius: 3px; margin: 4px 0 1px; background: linear-gradient(90deg, #2b6cb0, #2fb8c9, #a6e35a, #f5d327, #f08a24, #e2302d, #b31cc9); }
+.lg-ticks { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); }

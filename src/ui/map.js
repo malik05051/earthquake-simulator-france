@@ -242,6 +242,53 @@ export class QuakeMap {
     }
   }
 
+  // Tsunami wave field: the sea coloured by wave height wherever the wave has arrived, with a
+  // brighter leading edge. Drawn from the model grid, whose rows are already spaced in
+  // Web-Mercator, so it lines up when stretched over the grid's corners.
+  setWaveField(field, grid, t) {
+    const m = this.map;
+    if (!field || !grid) {
+      if (m.getLayer('wave-field')) m.setLayoutProperty('wave-field', 'visibility', 'none');
+      this._wf = null;
+      return;
+    }
+    if (!this._wf || this._wf.field !== field) {
+      const canvas = document.createElement('canvas');
+      canvas.width = grid.w;
+      canvas.height = grid.h;
+      const ctx = canvas.getContext('2d');
+      // height shown at each cell: open-sea amplitude shoaled (Green's law) to the local depth
+      const h = new Float32Array(grid.w * grid.h);
+      for (let i = 0; i < h.length; i++) {
+        if (field.arrival[i] < Infinity) h[i] = field.amp[i] * (field.srcDepth / Math.max(20, grid.depth[i])) ** 0.25;
+      }
+      this._wf = { field, canvas, ctx, img: ctx.createImageData(grid.w, grid.h), h, key: null };
+      const coords = [[grid.west, unmercLat(grid.mn)], [grid.east, unmercLat(grid.mn)], [grid.east, unmercLat(grid.ms)], [grid.west, unmercLat(grid.ms)]];
+      if (m.getSource('wave-field')) m.removeLayer('wave-field'), m.removeSource('wave-field');
+      m.addSource('wave-field', { type: 'image', url: canvas.toDataURL(), coordinates: coords });
+      m.addLayer({ id: 'wave-field', type: 'raster', source: 'wave-field', paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } }, 'land');
+    }
+    m.setLayoutProperty('wave-field', 'visibility', 'visible');
+    const key = Math.floor(t / 20);
+    if (key === this._wf.key) return;
+    this._wf.key = key;
+    const { arrival } = field;
+    const d = this._wf.img.data;
+    const h = this._wf.h;
+    for (let i = 0; i < h.length; i++) {
+      const o = i * 4;
+      if (!(arrival[i] <= t) || h[i] < 0.02) { d[o + 3] = 0; continue; }
+      const [r, g, b] = waveColor(h[i]);
+      const front = t - arrival[i] < 120;
+      d[o] = front ? Math.min(255, r + 60) : r;
+      d[o + 1] = front ? Math.min(255, g + 60) : g;
+      d[o + 2] = front ? Math.min(255, b + 60) : b;
+      d[o + 3] = front ? 235 : 150;
+    }
+    this._wf.ctx.putImageData(this._wf.img, 0, 0);
+    m.getSource('wave-field').updateImage({ url: this._wf.canvas.toDataURL(), coordinates: m.getSource('wave-field').coordinates });
+  }
+
   setBlink(on) {
     if (on === !!this.blinkTimer) return;
     const m = this.map;
@@ -308,5 +355,22 @@ function roundRect(g, x, y, w, h, r) {
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
 }
+
+// Wave-height colour ramp on a log scale: 0.1 m blue ... 1 m yellow ... 10 m+ magenta.
+const WAVE_STOPS = [[0.03, [43, 108, 176]], [0.1, [47, 184, 201]], [0.3, [166, 227, 90]], [1, [245, 211, 39]], [3, [240, 138, 36]], [6, [226, 48, 45]], [12, [179, 28, 201]]];
+function waveColor(h) {
+  if (h <= WAVE_STOPS[0][0]) return WAVE_STOPS[0][1];
+  for (let k = 1; k < WAVE_STOPS.length; k++) {
+    if (h <= WAVE_STOPS[k][0]) {
+      const [h0, c0] = WAVE_STOPS[k - 1];
+      const [h1, c1] = WAVE_STOPS[k];
+      const f = Math.log(h / h0) / Math.log(h1 / h0);
+      return c0.map((c, j) => Math.round(c + (c1[j] - c) * f));
+    }
+  }
+  return WAVE_STOPS[WAVE_STOPS.length - 1][1];
+}
+
+function unmercLat(y) { return ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI; }
 
 function empty() { return { type: 'FeatureCollection', features: [] }; }

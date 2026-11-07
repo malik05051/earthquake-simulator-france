@@ -102,17 +102,25 @@ export function deptListCard(regions, ctx) {
 }
 
 // ---------------------------------------------------------------- tsunami view
+export function metres(h) {
+  const v = h >= 10 ? h.toFixed(0) : h >= 1 ? h.toFixed(1) : h.toFixed(2);
+  return `${getLang() === 'fr' ? v.replace('.', ',') : v} m`;
+}
+
 export function tsunamiCard(ts, ctx, now) {
-  const { q } = ctx;
+  const { q, sim } = ctx;
   const origin = ctx.clock(0);
   const groups = ['alerte', 'vigilance', 'information'].map((lvl) => {
-    const list = [...ts.areas.entries()].filter(([, a]) => a.level === lvl).sort((a, b) => a[1].arrivalMin - b[1].arrivalMin);
+    const list = [...ts.areas.entries()].filter(([, a]) => a.level === lvl).sort((a, b) => a[1].arrivalS - b[1].arrivalS);
     if (!list.length) return '';
     const items = list.map(([code, a]) => {
-      const arrive = now >= a.arrivalMin * 60
-        ? `<span class="pill-y">${t('arrivingNow')}</span>`
-        : `<span class="pill-d">${t('expected', { time: fmtTime(ctx.clock(a.arrivalMin * 60), false) })}</span>`;
-      return `<div class="tsu-item"><div>${esc(deptName(code, ctx))} (${esc(code)})</div>${arrive}</div>`;
+      const obs = sim.tsunamiObservedAt(code, now);
+      let status;
+      if (obs?.peak != null) status = `<span class="pill-o">${t('observedMax', { h: metres(obs.peak), time: fmtTime(ctx.clock(obs.peakAt), false) })}</span>`;
+      else if (obs) status = `<span class="pill-y">${t('observing', { time: fmtTime(ctx.clock(obs.first), false) })}</span>`;
+      else if (now >= a.arrivalS) status = `<span class="pill-y">${t('arrivingNow')}</span>`;
+      else status = `<span class="pill-d">${t('expected', { time: fmtTime(ctx.clock(a.arrivalS), false) })}</span>`;
+      return `<div class="tsu-item"><div class="tsu-name"><span>${esc(deptName(code, ctx))} (${esc(code)})</span><b>${metres(a.height)}</b></div>${status}</div>`;
     }).join('');
     return `
       <div class="tsu-group" style="--c:${TSUNAMI_COLOR[lvl]}">
@@ -128,6 +136,8 @@ export function tsunamiCard(ts, ctx, now) {
       <div class="sub">${t('aroundTime', { time: `${fmtDate(origin)} ${fmtTime(origin, false)}` })}</div>
       <div class="place">${esc(ctx.sim.label(q.lat, q.lon, getLang()))}</div>
       ${magDepth(q.mag, q.depth)}
+      <div class="mrow"><span>${t('highestWave')}</span><b>${metres(ts.maxHeight)}</b><i style="background:${TSUNAMI_COLOR[ts.level]}"></i></div>
+      <div class="sub fine">${t('heightNote')}</div>
       ${groups}
     </div>
   </div>`;
@@ -167,7 +177,9 @@ export function historyItem(h, active) {
 export function legendHtml(view) {
   if (view === 'tsunami') {
     return `<div class="lg-title">${t('coastColours')}</div>` + ['alerte', 'vigilance', 'information'].map((l) =>
-      `<div class="lg-row"><i style="background:${TSUNAMI_COLOR[l]}"></i>${t('tsunamiShort')[l]}</div>`).join('');
+      `<div class="lg-row"><i style="background:${TSUNAMI_COLOR[l]}"></i>${t('tsunamiShort')[l]}</div>`).join('')
+      + `<div class="lg-title" style="margin-top:6px">${t('waveAtSea')}</div><div class="lg-grad"></div>`
+      + `<div class="lg-ticks"><span>${metres(0.1)}</span><span>${metres(1)}</span><span>${metres(10)}+</span></div>`;
   }
   const title = view === 'realtime' ? t('mapForecast') : t(scale.isJma() ? 'mapColoursJma' : 'mapColours');
   return `<div class="lg-title">${title}</div>` + scale.keys().slice().reverse().map((c) =>

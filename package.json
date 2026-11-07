@@ -1,7 +1,7 @@
 {
   "name": "quake-sim-france",
   "productName": "Simulateur de seismes France",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Simulateur de séismes pour la France (français / English)",
   "main": "main.js",
   "author": "malik05051",

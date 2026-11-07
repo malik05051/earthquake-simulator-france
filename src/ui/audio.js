@@ -68,7 +68,7 @@ const SYNTH = {
 
 export const SOUND_SLOTS = [
   ['eew', 'EEW'], ['eewAlert', 'EEW !'], ['update', '↻'], ['eewFinal', 'EEW final'], ['auto', 'autoLoc'], ['felt', 'felt'], ['final', 'final'],
-  ['tsunamiAlerte', 'alerte'], ['tsunamiVigilance', 'vigilance'], ['tsunamiInformation', 'information'],
+  ['tsunamiAlerte', 'alerte'], ['tsunamiVigilance', 'vigilance'], ['tsunamiInformation', 'information'], ['tsunamiObs', 'obs'],
 ];
 
 export function slotLabel(slot) {
@@ -77,6 +77,7 @@ export function slotLabel(slot) {
     eewFinal: `${t('eewTitle')} — ${t('eewFinal')}`,
     auto: t('autoLoc'), felt: t('felt'), final: t('final'),
     tsunamiAlerte: t('tsunamiTitle').alerte, tsunamiVigilance: t('tsunamiTitle').vigilance, tsunamiInformation: t('tsunamiTitle').information,
+    tsunamiObs: getLang() === 'fr' ? 'Observation tsunami' : 'Tsunami observation',
   };
   return L[slot] ?? slot;
 }
@@ -85,7 +86,7 @@ export function slotLabel(slot) {
 const FILES = {
   eew: 'eew.wav', eewAlert: 'eew-warning.mp3', update: 'eew-update.mp3', eewFinal: 'eew-final.mp3',
   auto: 'info-hypocenter.mp3', felt: 'info-flash.mp3', final: 'info-detail.mp3',
-  tsunamiInformation: 'tsa01.mp3', tsunamiVigilance: 'tsa02.mp3', tsunamiAlerte: 'tsa03.mp3',
+  tsunamiInformation: 'tsa01.mp3', tsunamiVigilance: 'tsa02.mp3', tsunamiAlerte: 'tsa03.mp3', tsunamiObs: 'tsa12.wav',
 };
 // EMS class of new shaking -> "shaking detected" tone (III..IX and above)
 const SHAKE_FILE = (k) => `newshi${Math.max(0, Math.min(6, k - 3))}.wav`;
